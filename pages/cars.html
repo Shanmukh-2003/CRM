@@ -1,0 +1,35 @@
+<section class="cars-section">
+    <div class="container">
+        <h1>Available Cars</h1>
+        <div class="filters">
+            <div class="filter-group">
+                <label>Car Type:</label>
+                <select id="typeFilter" onchange="filterCars()">
+                    <option value="">All Types</option>
+                    <option value="Hatchback">Hatchback</option>
+                    <option value="Sedan">Sedan</option>
+                    <option value="SUV">SUV</option>
+                    <option value="MPV">MPV</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Price Range:</label>
+                <select id="priceFilter" onchange="filterCars()">
+                    <option value="">All Prices</option>
+                    <option value="0-3000">Under ₹3000</option>
+                    <option value="3000-4000">₹3000 - ₹4000</option>
+                    <option value="4000+">Above ₹4000</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Fuel Type:</label>
+                <select id="fuelFilter" onchange="filterCars()">
+                    <option value="">All Fuel Types</option>
+                    <option value="Petrol">Petrol</option>
+                    <option value="Diesel">Diesel</option>
+                </select>
+            </div>
+        </div>
+        <div class="cars-grid" id="carsGrid"></div>
+    </div>
+</section>
