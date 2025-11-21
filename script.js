@@ -8,6 +8,7 @@ const state = {
     bookings: [],
     users: []
 };
+const MS_IN_DAY = 1000 * 60 * 60 * 24;
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
@@ -270,13 +271,22 @@ function showPage(pageName) {
 function updateNavigation() {
     const authButtons = document.getElementById('auth-buttons');
     const userMenu = document.getElementById('user-menu');
-    
+    const adminNavLink = document.getElementById('admin-nav-link');
+
     if (state.currentUser) {
         authButtons.style.display = 'none';
         userMenu.style.display = 'block';
     } else {
         authButtons.style.display = 'flex';
         userMenu.style.display = 'none';
+    }
+
+    if (adminNavLink) {
+        if (state.currentUser && state.currentUser.role === 'admin') {
+            adminNavLink.style.display = 'block';
+        } else {
+            adminNavLink.style.display = 'none';
+        }
     }
 }
 
@@ -613,12 +623,12 @@ function getBookingCard(booking) {
         <div class="booking-card">
             <div class="booking-header">
                 <h3>${car.brand} ${car.model}</h3>
-                <span class="booking-status ${booking.status}">${booking.status}</span>
+                <span class="booking-status ${booking.status}">${formatStatus(booking.status)}</span>
             </div>
             <div class="booking-details">
                 <div class="booking-info">
-                    <p><strong>From:</strong> ${new Date(booking.startDate).toLocaleDateString()}</p>
-                    <p><strong>To:</strong> ${new Date(booking.endDate).toLocaleDateString()}</p>
+                    <p><strong>From:</strong> ${formatBookingDate(booking.startDate)}</p>
+                    <p><strong>To:</strong> ${formatBookingDate(booking.endDate)}</p>
                     <p><strong>Total Days:</strong> ${booking.totalDays}</p>
                     <p><strong>Total Price:</strong> ₹${booking.totalPrice}</p>
                 </div>
@@ -664,9 +674,9 @@ function getAdminPage() {
                 </div>
                 
                 <div class="admin-tabs">
-                    <button class="tab-btn active" onclick="showAdminTab('cars')">Manage Cars</button>
-                    <button class="tab-btn" onclick="showAdminTab('bookings')">Manage Bookings</button>
-                    <button class="tab-btn" onclick="showAdminTab('users')">Manage Users</button>
+                    <button class="tab-btn active" data-tab="cars" onclick="showAdminTab('cars', event)">Manage Cars</button>
+                    <button class="tab-btn" data-tab="bookings" onclick="showAdminTab('bookings', event)">Manage Bookings</button>
+                    <button class="tab-btn" data-tab="users" onclick="showAdminTab('users', event)">Manage Users</button>
                 </div>
                 
                 <div id="admin-content">
@@ -853,58 +863,181 @@ function bookCar(carId) {
         showNotification('Car is not available', 'error');
         return;
     }
-    
-    // Simple booking form (in production, this would be a proper modal)
-    const startDate = prompt('Enter start date (YYYY-MM-DD):');
-    const endDate = prompt('Enter end date (YYYY-MM-DD):');
-    
-    if (startDate && endDate) {
-        const start = new Date(startDate);
-        const end = new Date(endDate);
 
-        if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-            showNotification('Please enter valid dates in YYYY-MM-DD format', 'error');
-            return;
+    showBookingModal(car);
+}
+
+function showBookingModal(car) {
+    closeBookingModal();
+    const modal = document.createElement('div');
+    modal.id = 'bookingModal';
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+        <div class="booking-modal">
+            <button class="modal-close" onclick="closeBookingModal()">&times;</button>
+            <h2>Book ${car.brand} ${car.model}</h2>
+            <p class="modal-subtitle">₹${car.price} per day</p>
+            <form id="bookingForm" data-car-id="${car.id}" onsubmit="handleBookingSubmit(event)">
+                <div class="form-group">
+                    <label for="bookingStartDate">Start Date</label>
+                    <input type="date" id="bookingStartDate" name="bookingStartDate" required>
+                </div>
+                <div class="form-group">
+                    <label for="bookingEndDate">End Date</label>
+                    <input type="date" id="bookingEndDate" name="bookingEndDate" required>
+                </div>
+                <div class="booking-summary">
+                    <h4>Booking Summary</h4>
+                    <div id="bookingSummaryContent">
+                        <p>Select start and end dates to calculate the duration and price.</p>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" onclick="closeBookingModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Confirm Booking</button>
+                </div>
+            </form>
+        </div>
+    `;
+
+    modal.addEventListener('click', event => {
+        if (event.target === modal) {
+            closeBookingModal();
         }
+    });
 
-        const hasOverlap = state.bookings.some(existing => {
-            if (existing.carId !== carId || existing.status !== 'confirmed') {
-                return false;
+    document.body.appendChild(modal);
+    document.body.classList.add('modal-active');
+
+    const today = new Date().toISOString().split('T')[0];
+    const startInput = modal.querySelector('#bookingStartDate');
+    const endInput = modal.querySelector('#bookingEndDate');
+    startInput.min = today;
+    endInput.min = today;
+
+    startInput.addEventListener('change', () => {
+        if (startInput.value) {
+            endInput.min = startInput.value;
+            if (endInput.value && endInput.value < startInput.value) {
+                endInput.value = startInput.value;
             }
-            const existingStart = new Date(existing.startDate);
-            const existingEnd = new Date(existing.endDate);
-            return start <= existingEnd && end >= existingStart;
-        });
-
-        if (hasOverlap) {
-            showNotification('This car is already booked for the selected dates. Please choose another car.', 'error');
-            return;
-        }
-
-        const totalDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
-        
-        if (totalDays > 0) {
-            const booking = {
-                id: Date.now(),
-                carId: carId,
-                userId: state.currentUser.id,
-                startDate: startDate,
-                endDate: endDate,
-                totalDays: totalDays,
-                totalPrice: totalDays * car.price,
-                status: 'confirmed',
-                createdAt: new Date().toISOString()
-            };
-            
-            state.bookings.push(booking);
-            saveToLocalStorage();
-            
-            showNotification(`Car booked successfully! Total: ₹${booking.totalPrice}`, 'success');
-            showPage('bookings');
         } else {
-            showNotification('Invalid date range', 'error');
+            endInput.min = today;
+        }
+        updateBookingSummary(modal, car, startInput.value, endInput.value);
+    });
+
+    endInput.addEventListener('change', () => {
+        updateBookingSummary(modal, car, startInput.value, endInput.value);
+    });
+
+    updateBookingSummary(modal, car, startInput.value, endInput.value);
+}
+
+function closeBookingModal() {
+    const modal = document.getElementById('bookingModal');
+    if (modal) {
+        modal.remove();
+    }
+    document.body.classList.remove('modal-active');
+}
+
+function updateBookingSummary(modal, car, startValue, endValue) {
+    const summaryContent = modal.querySelector('#bookingSummaryContent');
+    if (!summaryContent) {
+        return;
+    }
+
+    if (startValue && endValue) {
+        const totalDays = calculateTotalDays(startValue, endValue);
+        if (totalDays > 0) {
+            const totalPrice = totalDays * car.price;
+            summaryContent.innerHTML = `
+                <p><strong>From:</strong> ${formatBookingDate(startValue)}</p>
+                <p><strong>To:</strong> ${formatBookingDate(endValue)}</p>
+                <p><strong>Total Days:</strong> ${totalDays}</p>
+                <p><strong>Estimated Price:</strong> ₹${totalPrice}</p>
+            `;
+            return;
         }
     }
+
+    summaryContent.innerHTML = '<p>Select valid start and end dates to calculate the booking.</p>';
+}
+
+function handleBookingSubmit(event) {
+    event.preventDefault();
+    const form = event.target;
+    const carId = parseInt(form.dataset.carId, 10);
+    const car = state.cars.find(c => c.id === carId);
+
+    if (!car) {
+        showNotification('Car not found. Please try again.', 'error');
+        return;
+    }
+
+    const startDate = form.bookingStartDate.value;
+    const endDate = form.bookingEndDate.value;
+
+    if (!startDate || !endDate) {
+        showNotification('Please select both start and end dates.', 'error');
+        return;
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        showNotification('Please enter valid dates.', 'error');
+        return;
+    }
+
+    if (end <= start) {
+        showNotification('End date must be after the start date.', 'error');
+        return;
+    }
+
+    if (hasBookingOverlap(carId, start, end)) {
+        showNotification('This car is already booked for the selected dates. Please choose another date range.', 'error');
+        return;
+    }
+
+    const totalDays = calculateTotalDays(startDate, endDate);
+
+    if (totalDays <= 0) {
+        showNotification('Invalid date range selected.', 'error');
+        return;
+    }
+
+    const booking = {
+        id: Date.now(),
+        carId: carId,
+        userId: state.currentUser.id,
+        startDate: startDate,
+        endDate: endDate,
+        totalDays: totalDays,
+        totalPrice: totalDays * car.price,
+        status: 'confirmed',
+        createdAt: new Date().toISOString()
+    };
+
+    state.bookings.push(booking);
+    saveToLocalStorage();
+
+    closeBookingModal();
+    showNotification(`Car booked successfully! Total: ₹${booking.totalPrice}`, 'success');
+    showPage('bookings');
+}
+
+function hasBookingOverlap(carId, start, end) {
+    return state.bookings.some(existing => {
+        if (existing.carId !== carId || existing.status !== 'confirmed') {
+            return false;
+        }
+        const existingStart = new Date(existing.startDate);
+        const existingEnd = new Date(existing.endDate);
+        return start <= existingEnd && end >= existingStart;
+    });
 }
 
 function cancelBooking(bookingId) {
@@ -918,12 +1051,19 @@ function cancelBooking(bookingId) {
 }
 
 // Admin Functions
-function showAdminTab(tab) {
+function showAdminTab(tab, evt = null) {
     const content = document.getElementById('admin-content');
     const buttons = document.querySelectorAll('.tab-btn');
     
     buttons.forEach(btn => btn.classList.remove('active'));
-    event.target.classList.add('active');
+    if (evt && evt.target) {
+        evt.target.classList.add('active');
+    } else {
+        const targetButton = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
+        if (targetButton) {
+            targetButton.classList.add('active');
+        }
+    }
     
     switch(tab) {
         case 'cars':
@@ -965,11 +1105,11 @@ function getAdminBookingsTab() {
                                     <td>${booking.id}</td>
                                     <td>${user ? user.fullName : 'Unknown'}</td>
                                     <td>${car ? `${car.brand} ${car.model}` : 'Unknown'}</td>
-                                    <td>${new Date(booking.startDate).toLocaleDateString()}</td>
-                                    <td>${new Date(booking.endDate).toLocaleDateString()}</td>
+                                    <td>${formatBookingDate(booking.startDate)}</td>
+                                    <td>${formatBookingDate(booking.endDate)}</td>
                                     <td>₹${booking.totalPrice}</td>
                                     <td>
-                                        <span class="status ${booking.status}">${booking.status}</span>
+                                        <span class="status ${booking.status}">${formatStatus(booking.status)}</span>
                                     </td>
                                     <td>
                                         ${booking.status === 'confirmed' ? 
@@ -1033,6 +1173,182 @@ function updateBookingStatus(bookingId, newStatus) {
     }
 }
 
+function showAddCarForm() {
+    openCarFormModal('add');
+}
+
+function editCar(carId) {
+    const car = state.cars.find(c => c.id === carId);
+    if (!car) {
+        showNotification('Car not found', 'error');
+        return;
+    }
+    openCarFormModal('edit', car);
+}
+
+function deleteCar(carId) {
+    const carIndex = state.cars.findIndex(c => c.id === carId);
+    if (carIndex === -1) {
+        showNotification('Car not found', 'error');
+        return;
+    }
+
+    const car = state.cars[carIndex];
+    const confirmed = confirm(`Delete ${car.brand} ${car.model}? This action cannot be undone.`);
+    if (!confirmed) {
+        return;
+    }
+
+    state.cars.splice(carIndex, 1);
+    saveToLocalStorage();
+    showNotification('Car deleted successfully', 'success');
+    showAdminTab('cars');
+}
+
+function openCarFormModal(mode, car = null) {
+    closeCarModal();
+    const modal = document.createElement('div');
+    modal.id = 'carModal';
+    modal.className = 'modal-overlay';
+    const title = mode === 'edit' ? 'Edit Car' : 'Add New Car';
+    const featuresValue = car && Array.isArray(car.features) ? car.features.join(', ') : '';
+
+    modal.innerHTML = `
+        <div class="booking-modal car-modal">
+            <button class="modal-close" onclick="closeCarModal()">&times;</button>
+            <h2>${title}</h2>
+            <form id="carForm" data-mode="${mode}" onsubmit="handleCarFormSubmit(event)">
+                <input type="hidden" name="carId" value="${car ? car.id : ''}">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="carBrand">Brand</label>
+                        <input type="text" id="carBrand" name="brand" value="${car ? car.brand : ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="carModel">Model</label>
+                        <input type="text" id="carModel" name="model" value="${car ? car.model : ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="carType">Type</label>
+                        <input type="text" id="carType" name="type" value="${car ? car.type : ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="carPrice">Price / Day (₹)</label>
+                        <input type="number" id="carPrice" name="price" min="0" value="${car ? car.price : ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="carSeats">Seats</label>
+                        <input type="number" id="carSeats" name="seats" min="1" value="${car ? car.seats : ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="carFuel">Fuel Type</label>
+                        <input type="text" id="carFuel" name="fuel" value="${car ? car.fuel : ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="carTransmission">Transmission</label>
+                        <input type="text" id="carTransmission" name="transmission" value="${car ? car.transmission : ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="carImage">Image Path</label>
+                        <input type="text" id="carImage" name="image" value="${car ? car.image : ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="carAvailable">Availability</label>
+                        <select id="carAvailable" name="available">
+                            <option value="true" ${!car || car.available ? 'selected' : ''}>Available</option>
+                            <option value="false" ${car && !car.available ? 'selected' : ''}>Unavailable</option>
+                        </select>
+                    </div>
+                    <div class="form-group form-group-full">
+                        <label for="carFeatures">Features (comma separated)</label>
+                        <textarea id="carFeatures" name="features" rows="2" placeholder="AC, Power Steering, ...">${featuresValue}</textarea>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" onclick="closeCarModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">${mode === 'edit' ? 'Save Changes' : 'Add Car'}</button>
+                </div>
+            </form>
+        </div>
+    `;
+
+    modal.addEventListener('click', (event) => {
+        if (event.target === modal) {
+            closeCarModal();
+        }
+    });
+
+    document.body.appendChild(modal);
+    document.body.classList.add('modal-active');
+}
+
+function closeCarModal() {
+    const modal = document.getElementById('carModal');
+    if (modal) {
+        modal.remove();
+    }
+    document.body.classList.remove('modal-active');
+}
+
+function handleCarFormSubmit(event) {
+    event.preventDefault();
+    const form = event.target;
+    const mode = form.dataset.mode;
+    const carIdValue = form.carId.value;
+    const price = parseInt(form.price.value, 10);
+    const seats = parseInt(form.seats.value, 10);
+
+    if (isNaN(price) || isNaN(seats)) {
+        showNotification('Please provide valid numeric values for price and seats.', 'error');
+        return;
+    }
+
+    const features = form.features.value
+        .split(',')
+        .map(feature => feature.trim())
+        .filter(Boolean);
+
+    const carData = {
+        brand: form.brand.value.trim(),
+        model: form.model.value.trim(),
+        type: form.type.value.trim(),
+        price,
+        seats,
+        fuel: form.fuel.value.trim(),
+        transmission: form.transmission.value.trim(),
+        image: form.image.value.trim(),
+        available: form.available.value === 'true',
+        features
+    };
+
+    if (!carData.brand || !carData.model || !carData.type || !carData.fuel || !carData.transmission || !carData.image) {
+        showNotification('All fields are required.', 'error');
+        return;
+    }
+
+    if (mode === 'edit' && carIdValue) {
+        const carId = parseInt(carIdValue, 10);
+        const carIndex = state.cars.findIndex(c => c.id === carId);
+        if (carIndex === -1) {
+            showNotification('Car not found.', 'error');
+            return;
+        }
+        state.cars[carIndex] = { ...state.cars[carIndex], ...carData };
+        showNotification('Car updated successfully', 'success');
+    } else {
+        const newCar = {
+            id: Date.now(),
+            ...carData
+        };
+        state.cars.push(newCar);
+        showNotification('Car added successfully', 'success');
+    }
+
+    saveToLocalStorage();
+    closeCarModal();
+    showAdminTab('cars');
+}
+
 // Utility Functions
 function filterCars() {
     const typeFilter = document.getElementById('typeFilter').value;
@@ -1086,6 +1402,29 @@ function showNotification(message, type = 'info') {
     setTimeout(() => {
         notification.remove();
     }, 3000);
+}
+
+function calculateTotalDays(startDate, endDate) {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    return Math.ceil((end - start) / MS_IN_DAY);
+}
+
+function formatBookingDate(dateString) {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) {
+        return 'Invalid date';
+    }
+    return date.toLocaleDateString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric'
+    });
+}
+
+function formatStatus(status) {
+    if (!status) return '';
+    return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
 // Initialize default admin user
